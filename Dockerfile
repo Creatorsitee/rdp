@@ -1,4 +1,4 @@
-kembangkan FROM --platform=linux/amd64 ubuntu:24.04
+FROM --platform=linux/amd64 ubuntu:24.04
 
 # 1. Setup Environment
 ENV DEBIAN_FRONTEND=noninteractive
