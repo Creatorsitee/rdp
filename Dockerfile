@@ -1,55 +1,68 @@
 FROM --platform=linux/amd64 ubuntu:24.04
 
-# 1. Setup Environment
 ENV DEBIAN_FRONTEND=noninteractive
-ENV USER=root
-# Silakan ganti 'rahasia123' dengan password pilihan Anda
-ENV VNC_PASSWORD=rahasia123 
 
+# 1. Install System & Desktop Environment
 RUN apt update && apt install -y --no-install-recommends \
-    sudo curl wget gpg git xfce4 xfce4-goodies \
-    tigervnc-standalone-server novnc websockify \
-    dbus-x11 x11-xserver-utils x11-utils x11-apps \
-    arc-theme papirus-icon-theme \
-    vim nano net-tools locales \
-    && locale-gen en_US.UTF-8
+    xfce4 xfce4-goodies tigervnc-standalone-server \
+    novnc websockify sudo xterm vim net-tools curl wget git \
+    dbus-x11 x11-utils x11-xserver-utils software-properties-common \
+    python3-pip nodejs npm && \
+    apt clean && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /usr/share/keyrings/google-chrome.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt update && apt install -y google-chrome-stable
+# 2. Install Firefox
+RUN add-apt-repository ppa:mozillateam/ppa -y && \
+    apt update && apt install -y firefox
 
-# 3. Install VS Code
-RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /usr/share/keyrings/vscode.gpg \
-    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/vscode.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list \
-    && apt update && apt install -y code
+# 3. Setup Auth Proxy (Semua Hardcoded di sini)
+WORKDIR /app
+RUN npm install express express-session body-parser http-proxy-middleware
 
-# 4. Install Node.js 20.x LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt install -y nodejs
+RUN echo "const express = require('express'); \
+const session = require('express-session'); \
+const bodyParser = require('body-parser'); \
+const { createProxyMiddleware } = require('http-proxy-middleware'); \
+const app = express(); \
+const port = process.env.PORT || 6080; \
+/* KREDENSIAL LOGIN DI SINI */ \
+const USERNAME = 'admin'; \
+const PASSWORD = 'admin123'; \
+const htmlContent = \` \
+<!DOCTYPE html><html><head><title>Cloud Desktop</title><meta name='viewport' content='width=device-width, initial-scale=1'> \
+<style> \
+  body{background:#0f172a;color:#f8fafc;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif} \
+  .card{background:#1e293b;padding:2.5rem;border-radius:12px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);width:320px;text-align:center;border:1px solid #334155} \
+  input{width:100%;padding:12px;margin:10px 0;border-radius:6px;border:1px solid #475569;background:#0f172a;color:white;box-sizing:border-box;outline:none} \
+  input:focus{border-color:#38bdf8} \
+  button{width:100%;padding:12px;background:#0284c7;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:bold;margin-top:10px} \
+  button:hover{background:#0369a1} \
+  h2{margin-top:0;font-weight:300;letter-spacing:1px} \
+</style></head> \
+<body><div class='card'><h2>DESKTOP LOGIN</h2><form method='POST' action='/login'> \
+<input type='text' name='username' placeholder='Username' required> \
+<input type='password' name='password' placeholder='Password' required> \
+<button type='submit'>MASUK</button></form></div></body></html>\`; \
+app.use(bodyParser.urlencoded({ extended: true })); \
+app.use(session({ secret: 'vnc-secret-key', resave: false, saveUninitialized: true })); \
+app.post('/login', (req, res) => { \
+    if (req.body.username === USERNAME && req.body.password === PASSWORD) { \
+        req.session.authenticated = true; res.redirect('/'); \
+    } else { res.send('Salah Bos! <a href=\"/login\">Balik lagi</a>'); } \
+}); \
+app.get('/login', (req, res) => res.send(htmlContent)); \
+app.use((req, res, next) => { \
+    if (req.session.authenticated || req.path === '/login') next(); \
+    else res.redirect('/login'); \
+}); \
+app.use('/', createProxyMiddleware({ target: 'http://127.0.0.1:6081', ws: true })); \
+app.listen(port, '0.0.0.0');" > server.js
 
-# 5. Firefox (Mozilla PPA)
-RUN apt install -y software-properties-common && add-apt-repository ppa:mozillateam/ppa -y \
-    && echo 'Package: *' > /etc/apt/preferences.d/mozilla-firefox \
-    && echo 'Pin: release o=LP-PPA-mozillateam' >> /etc/apt/preferences.d/mozilla-firefox \
-    && echo 'Pin-Priority: 1001' >> /etc/apt/preferences.d/mozilla-firefox \
-    && apt update && apt install -y firefox
-
-# 6. Konfigurasi Keamanan VNC (Set Password)
-RUN mkdir -p /root/.vnc \
-    && echo "$VNC_PASSWORD" | vncpasswd -f > /root/.vnc/passwd \
-    && chmod 600 /root/.vnc/passwd
-
-# 7. Pengaturan Tema (Agar Tampilan Menu Bagus/Modern)
-RUN mkdir -p /root/.config/xfce4/xfconf/xfce-perchannel-xml \
-    && echo '<?xml version="1.0" encoding="UTF-8"?><channel name="xsettings" version="1.0"><property name="Net" type="empty"><property name="ThemeName" type="string" value="Arc-Darker"/><property name="IconThemeName" type="string" value="Papirus"/></property></channel>' > /root/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
-
-EXPOSE 5901
+# 4. Expose Port (Railway pake 6080)
 EXPOSE 6080
 
-# 8. Script Startup dengan Otentikasi
+# 5. Eksekusi Semuanya
 CMD bash -c "\
-    vncserver -localhost no -geometry 1280x800 :1 && \
-    openssl req -new -subj '/C=ID/ST=Jakarta/L=Jakarta/O=IT/CN=Railway' -x509 -days 365 -nodes -out self.pem -keyout self.pem && \
-    websockify -D --web=/usr/share/novnc/ --cert=self.pem 6080 localhost:5901 && \
-    tail -f /dev/null"
+    mkdir -p ~/.vnc && echo 'rahasia123' | vncpasswd -f > ~/.vnc/passwd && chmod 600 ~/.vnc/passwd && \
+    vncserver -localhost no -SecurityTypes VncAuth -PasswordFile ~/.vnc/passwd -geometry 1280x800 :1 && \
+    /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 127.0.0.1:6081 & \
+    node server.js"
